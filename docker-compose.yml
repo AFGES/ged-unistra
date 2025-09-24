@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  webdav-cas-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Utiliser les build args si nécessaire
+      args:
+        NODE_ENV: production
+    
+    image: webdav-cas-proxy:0.1.0
+    container_name: webdav-cas-proxy
+    
+    # Configuration réseau
+    ports:
+      - "3000:3000"
+    
+    # Variables d'environnement
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # Optionnel: configuration via variables d'environnement
+      # - CAS_LOGIN_URL=https://cas.unistra.fr/cas/login?service=https%3A%2F%2Fged.unistra.fr%2Fnuxeo%2Flogin%2Fcas
+      # - WEBDAV_BASE_URL=https://ged.unistra.fr/nuxeo/
+      # - DEBUG_MODE=false
+    
+    # Politique de redémarrage
+    restart: unless-stopped
+    
+    # Limites de ressources
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+    
+    # Healthcheck (redondant avec celui du Dockerfile mais configurable)
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/admin/cache/stats || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Sécurité
+    security_opt:
+      - no-new-privileges:true
+    read_only: false  # L'app a besoin d'écrire dans le cache en mémoire
+    
+    # Labels pour organisation
+    labels:
+      - "traefik.enable=false"  # Désactiver Traefik par défaut
+      - "com.example.service=webdav-cas-proxy"
+      - "com.example.version=0.1.0"
+
+# Configuration réseau optionnelle
+networks:
+  default:
+    name: webdav-proxy-network
+    driver: bridge
