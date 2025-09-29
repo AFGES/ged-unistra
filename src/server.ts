@@ -5,12 +5,12 @@ import { AuthCredentials, WebDAVProxyConfig } from './types';
 
 const app = express();
 
-// Configuration
+// Configuration via variables d'environnement avec valeurs par défaut
 const config: WebDAVProxyConfig = {
-    casLoginUrl: 'https://cas.unistra.fr/cas/login?service=https%3A%2F%2Fged.unistra.fr%2Fnuxeo%2Fnxstartup.faces',
-    webdavBaseUrl: 'https://ged.unistra.fr/nuxeo/site/dav/',
-    port: 3000,
-    debugMode: true
+    casLoginUrl: process.env.CAS_LOGIN_URL || 'https://cas.unistra.fr/cas/login?service=https%3A%2F%2Fged.unistra.fr%2Fnuxeo%2Fnxstartup.faces',
+    webdavBaseUrl: process.env.WEBDAV_BASE_URL || 'https://ged.unistra.fr/nuxeo/site/dav',
+    port: parseInt(process.env.PORT || '3000'),
+    debugMode: process.env.DEBUG_MODE === 'true' || process.env.NODE_ENV === 'development'
 };
 
 // Instance de l'authenticateur CAS
@@ -24,7 +24,7 @@ function debugLog(...args: any[]): void {
 
 // Parse des credentials depuis l'en-tête Authorization
 function parseCredentials(authHeader: string): AuthCredentials | null {
-    if (!authHeader || !authHeader.startsWith('Basic ')) {
+    if (!authHeader?.startsWith('Basic ')) {
         return null;
     }
     
@@ -54,7 +54,7 @@ async function authenticate(req: Request, res: Response, next: NextFunction): Pr
         if (!authHeader) {
             debugLog('Aucun en-tête Authorization, demande d\'authentification');
             res.status(401)
-               .set('WWW-Authenticate', 'Basic realm="WebDAV"')
+               .set('WWW-Authenticate', 'Basic realm="GED Unistra"')
                .send('Authentification requise');
             return;
         }
@@ -64,7 +64,7 @@ async function authenticate(req: Request, res: Response, next: NextFunction): Pr
         if (!credentials) {
             debugLog('Credentials invalides dans l\'en-tête Authorization');
             res.status(401)
-               .set('WWW-Authenticate', 'Basic realm="WebDAV"')
+               .set('WWW-Authenticate', 'Basic realm="GED Unistra"')
                .send('Credentials invalides');
             return;
         }
