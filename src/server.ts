@@ -96,24 +96,92 @@ async function authenticate(req: Request, res: Response, next: NextFunction): Pr
     }
 }
 
-// Configuration du proxy WebDAV (http-proxy-middleware v3)
-const webdavProxy = createProxyMiddleware({
+// Fonction pour transformer les réponses PROPFIND
+function transformPropfindResponse(body: string): string {
+    // Remplacer les URLs absolues par des chemins relatifs
+    const baseUrlPattern = /https:\/\/ged\.unistra\.fr\/nuxeo\/site\/dav\//g;
+    return body.replace(baseUrlPattern, '/');
+}
+
+// Configuration du proxy WebDAV avec transformation des réponses
+const webdavProxy = createProxyMiddleware<Request, Response, NextFunction>({
     target: config.webdavBaseUrl,
     changeOrigin: true,
-    // Configuration des événements directement dans les options (v3)
-    ...(config.debugMode && {
-        onError: (err: Error, req: Request, res: Response) => {
-            console.error('Erreur du proxy WebDAV:', err.message);
-            debugLog('Détail de l\'erreur proxy:', err.stack);
-            
-            if (!res.headersSent) {
-                res.status(502).json({ 
-                    error: 'Erreur du proxy WebDAV',
-                    message: config.debugMode ? err.message : undefined
+    selfHandleResponse: true, // Active la gestion manuelle des réponses
+    on: {
+        proxyRes: (proxyRes: any, req: Request, res: Response) => {
+            // Interception des réponses PROPFIND pour modifier les href absolues en relatives
+            if (req.method === 'PROPFIND' && proxyRes.headers['content-type']?.includes('application/xml')) {
+                debugLog('Interception réponse PROPFIND pour transformation des URLs');
+                
+                let body = '';
+                
+                proxyRes.on('data', (chunk: Buffer) => {
+                    body += chunk.toString('utf8');
                 });
+                
+                proxyRes.on('end', () => {
+                    try {
+                        // Transformer les URLs absolues en relatives
+                        const transformedBody = transformPropfindResponse(body);
+                        
+                        debugLog('Transformation XML:', {
+                            original: body.substring(0, 200) + '...',
+                            transformed: transformedBody.substring(0, 200) + '...'
+                        });
+                        
+                        // Calculer et définir la nouvelle longueur du contenu
+                        const contentLength = Buffer.byteLength(transformedBody, 'utf8');
+                        res.setHeader('Content-Length', contentLength);
+                        
+                        debugLog('Content-Length mis à jour:', contentLength, 'bytes');
+                        res.statusCode = proxyRes.statusCode || 200;
+                        
+                        // Envoyer la réponse transformée
+                        res.end(transformedBody);
+                        
+                    } catch (error) {
+                        debugLog('Erreur lors de la transformation XML:', (error as Error).message);
+                        // En cas d'erreur, renvoyer la réponse originale avec les bons en-têtes
+                        Object.keys(proxyRes.headers).forEach(key => {
+                            const lowerKey = key.toLowerCase();
+                            if (lowerKey !== 'transfer-encoding') {
+                                const value = proxyRes.headers[key];
+                                if (value) {
+                                    res.setHeader(key, value);
+                                }
+                            }
+                        });
+                        res.statusCode = proxyRes.statusCode || 200;
+                        res.end(body);
+                    }
+                });
+            } else {
+                // Pour les autres types de réponses, laisser le proxy gérer normalement
+                Object.keys(proxyRes.headers).forEach(key => {
+                    const value = proxyRes.headers[key];
+                    if (value) {
+                        res.setHeader(key, value);
+                    }
+                });
+                res.statusCode = proxyRes.statusCode || 200;
+                proxyRes.pipe(res);
             }
-        }
-    })
+        },
+        ...(config.debugMode && {
+            error: (err: Error, req: Request, res: any) => {
+                console.error('Erreur du proxy WebDAV:', err.message);
+                debugLog('Détail de l\'erreur proxy:', err.stack);
+                
+                if (res && typeof res.headersSent !== 'undefined' && !res.headersSent && res.status) {
+                    res.status(502).json({ 
+                        error: 'Erreur du proxy WebDAV',
+                        message: config.debugMode ? err.message : undefined
+                    });
+                }
+            }
+        })
+    }
 });
 
 // Routes d'administration (sans authentification)
