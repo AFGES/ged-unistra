@@ -23,7 +23,7 @@ services:
           cpus: "0.1"
     healthcheck:
       test:
-        ["CMD-SHELL", "wget -qO- http://localhost/admin/cache/stats || exit 1"]
+        ["CMD-SHELL", "wget -qO- http://localhost/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
