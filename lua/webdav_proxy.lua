@@ -17,6 +17,21 @@ local function escape_pattern(s)
     return (s:gsub("([%.%+%-%*%?%[%]%^%$%(%)%%])", "%%%1"))
 end
 
+-- Decode %XX byte sequences only. Deliberately does NOT treat '+' as space
+-- (RFC 3986 path encoding keeps literal '+'; ngx.unescape_uri would corrupt
+-- filenames like "C++ notes"). Byte-level decode is UTF-8 safe.
+local function percent_decode(s)
+    return (s:gsub("%%(%x%x)", function(h)
+        return string.char(tonumber(h, 16))
+    end))
+end
+
+-- Re-escape XML metacharacters that a decoded name may contain
+-- (e.g. "R%26D" -> "R&D" -> "R&amp;D"), keeping the body well-formed.
+local function xml_escape(s)
+    return (s:gsub("[&<>]", { ["&"] = "&amp;", ["<"] = "&lt;", [">"] = "&gt;" }))
+end
+
 -- Lazily compiled rewrite pattern derived from WEBDAV_BASE_URL
 local _rewrite_pattern
 
@@ -88,6 +103,13 @@ function M.rewrite_propfind_body()
         -- Replace "https://ged.unistra.fr/nuxeo/site/dav" → "" so that
         -- "/documents/foo.pdf" paths remain absolute from the proxy root.
         local rewritten = body:gsub(get_rewrite_pattern(), "")
+        -- Nuxeo returns percent-encoded displayname; decode so GVFS shows the
+        -- real name. Match any namespace prefix (<D:displayname>, <displayname>).
+        rewritten = rewritten:gsub(
+            "(<%w*:?displayname>)(.-)(</%w*:?displayname>)",
+            function(open, val, close)
+                return open .. xml_escape(percent_decode(val)) .. close
+            end)
         ngx.arg[1] = rewritten
     end
 end
