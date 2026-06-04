@@ -11,7 +11,7 @@ services:
       - CAS_LOGIN_URL=https://cas.unistra.fr/cas/login?service=https%3A%2F%2Fged.unistra.fr%2Fnuxeo%2Fnxstartup.faces
       - WEBDAV_BASE_URL=https://ged.unistra.fr/nuxeo/site/dav
       - AUTH_CACHE_TTL=3000
-      - DEBUG_MODE=true
+      - DEBUG_MODE=false
     restart: unless-stopped
     deploy:
       resources:
