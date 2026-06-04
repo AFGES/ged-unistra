@@ -42,9 +42,6 @@ function M.authenticate()
         return ngx.exit(401)
     end
 
-    require("config").debug("basic-auth parsed: user='", username,
-        "' pwlen=", password and #password or 0)
-
     local jsessionid, err = cas_auth.get_jsessionid(username, password)
     if not jsessionid then
         ngx.log(ngx.ERR, "CAS auth failed for ", username, ": ", err)

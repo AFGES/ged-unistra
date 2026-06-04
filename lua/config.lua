@@ -21,10 +21,7 @@ end
 
 function M.debug(...)
     if _cfg.debug_mode then
-        -- Use ERR level: stock openresty is not a --with-debug build, so
-        -- ngx.DEBUG/ngx.INFO messages are silently dropped. Revert to DEBUG
-        -- (or drop these logs) once the CAS flow is confirmed working.
-        ngx.log(ngx.ERR, "[cas-proxy] ", ...)
+        ngx.log(ngx.DEBUG, "[cas-proxy] ", ...)
     end
 end
 

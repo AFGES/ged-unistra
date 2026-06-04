@@ -9,12 +9,9 @@ LABEL description="GED Unistra with CAS authentication and OpenResty as reverse 
 RUN apk add --no-cache ca-certificates
 
 COPY nginx/nginx.conf /etc/nginx/conf.d/default.conf
-COPY nginx/entrypoint.sh /entrypoint.sh
 COPY lua/ /etc/nginx/lua/
 COPY --from=builder /usr/local/openresty/site/lualib/ /usr/local/openresty/site/lualib/
 
-RUN chmod +x /entrypoint.sh
-
 EXPOSE 80
 
-ENTRYPOINT ["/entrypoint.sh"]
+CMD ["/usr/local/openresty/bin/openresty", "-g", "daemon off;"]
