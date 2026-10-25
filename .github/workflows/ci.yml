@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Lint, unit tests and smoke test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Lint and unit tests
+        run: docker build --target test .
+
+      - name: Build image
+        run: docker build -t ged-unistra:ci .
+
+      - name: Smoke test
+        run: |
+          docker run -d --name proxy -p 3000:80 ged-unistra:ci
+          for _ in $(seq 1 20); do
+            curl -sf http://127.0.0.1:3000/health && break
+            sleep 1
+          done
+          echo
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/health)" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X PROPFIND http://127.0.0.1:3000/)" = 401
+
+      - name: Proxy logs
+        if: always()
+        run: docker logs proxy || true
+
+  zizmor:
+    name: Workflow security (zizmor)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # checkout
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@53290badfa369cb0bf7ad16342cb62c2fa47ac7b # v0.8.0
+        with:
+          advanced-security: false

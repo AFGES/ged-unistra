@@ -162,7 +162,10 @@ and WebAuthn are not supported.
 │   ├── cache.lua             # shared-dict session cache
 │   ├── webdav_proxy.lua      # auth + PROPFIND/header rewriting
 │   └── admin.lua             # /health + cache admin endpoints
-├── Dockerfile                # OpenResty image (opm lua-resty-http)
+├── tests/totp_test.lua       # TOTP unit tests
+├── Dockerfile                # OpenResty image; `--target test` runs luacheck + tests
 ├── docker-compose.yml
-└── .github/workflows/build-container.yml
+└── .github/workflows/
+    ├── ci.yml                # lint, tests, smoke test, zizmor
+    └── build-container.yml   # build and push to GHCR
 ```

@@ -169,7 +169,10 @@ courriel, grille de codes et WebAuthn ne sont pas pris en charge.
 │   ├── cache.lua             # cache de session (shared-dict)
 │   ├── webdav_proxy.lua      # auth + réécriture PROPFIND/en-têtes
 │   └── admin.lua             # /health + endpoints d'admin du cache
-├── Dockerfile                # image OpenResty (opm lua-resty-http)
+├── tests/totp_test.lua       # tests unitaires TOTP
+├── Dockerfile                # image OpenResty ; `--target test` lance luacheck + tests
 ├── docker-compose.yml
-└── .github/workflows/build-container.yml
+└── .github/workflows/
+    ├── ci.yml                # lint, tests, smoke test, zizmor
+    └── build-container.yml   # build et push vers GHCR
 ```
