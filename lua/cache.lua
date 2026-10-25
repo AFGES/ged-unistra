@@ -32,6 +32,20 @@ function M.get(key)
     return value:match("^([^|]+)|")
 end
 
+-- Per-key login lock so parallel cache misses run CAS only once.
+-- Returns true if the caller now holds the lock.
+function M.lock(key, ttl)
+    return ngx.shared[DICT]:add("lock_" .. key, true, ttl) == true
+end
+
+function M.unlock(key)
+    ngx.shared[DICT]:delete("lock_" .. key)
+end
+
+function M.is_locked(key)
+    return ngx.shared[DICT]:get("lock_" .. key) ~= nil
+end
+
 function M.flush()
     ngx.shared[DICT]:flush_all()
     ngx.shared[DICT]:flush_expired()

@@ -1,5 +1,6 @@
 local M = {}
 local cas_auth = require("cas_auth")
+local totp     = require("totp")
 
 local function parse_basic_auth(auth_header)
     if not auth_header then return nil, nil end
@@ -9,7 +10,18 @@ local function parse_basic_auth(auth_header)
     if not decoded then return nil, nil end
     -- Split on first colon only; password may contain colons
     local username, password = decoded:match("^([^:]+):(.+)$")
-    return username, password
+    if not username then return nil, nil end
+    -- Optional second factor after the last '|': a 6-digit TOTP code
+    -- ("password|123456") or a TOTP secret ("password|BASE32SECRET").
+    -- Kept as part of the password if it looks like neither.
+    local pw, factor = password:match("^(.+)|([^|]+)$")
+    if pw and totp.is_code(factor) then
+        return username, pw, factor
+    end
+    if pw and totp.is_secret(factor) then
+        return username, pw, totp.normalize(factor)
+    end
+    return username, password, nil
 end
 
 -- Escape a literal string for use in Lua string.gsub pattern
@@ -51,13 +63,13 @@ function M.authenticate()
         return ngx.exit(401)
     end
 
-    local username, password = parse_basic_auth(auth_header)
+    local username, password, second_factor = parse_basic_auth(auth_header)
     if not username then
         ngx.header["WWW-Authenticate"] = 'Basic realm="GED Unistra"'
         return ngx.exit(401)
     end
 
-    local jsessionid, err = cas_auth.get_jsessionid(username, password)
+    local jsessionid, err = cas_auth.get_jsessionid(username, password, second_factor)
     if not jsessionid then
         ngx.log(ngx.ERR, "CAS auth failed for ", username, ": ", err)
         ngx.header["WWW-Authenticate"] = 'Basic realm="GED Unistra"'

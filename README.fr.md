@@ -51,6 +51,10 @@ modules Lua sous [`lua/`](lua/) :
 GET de la page de connexion → extraction du token `execution` → POST des
 identifiants **sans suivre les redirections** → lecture du `JSESSIONID` dans
 `Set-Cookie` (en suivant une `302` si le cookie n'est pas sur la réponse POST).
+Si CAS répond par sa page de second facteur, le proxy POSTe un code TOTP
+(`token`, nouvel `execution`, `_eventId_submit=Login`) avant de lire le
+`JSESSIONID`. Une seule connexion CAS s'exécute à la fois par identifiants ; les
+requêtes parallèles attendent son résultat.
 
 **Cache de session** ([`lua/cache.lua`](lua/cache.lua)) : recherche cache-first
 dans un `lua_shared_dict` de 10 Mo. La clé est
@@ -118,6 +122,25 @@ gio mount dav://utilisateur@localhost:3000/
 sudo mount -t davfs http://localhost:3000/ /mnt/ged
 ```
 
+### Double authentification (A2F)
+
+Le CAS Unistra peut demander un second facteur. Le proxy ne prend en charge que
+la méthode **TOTP**, et génère lui-même les codes :
+
+1. Activez la méthode TOTP dans le
+   [gestionnaire A2F Unistra](https://cas-mfa.app.unistra.fr/). Il affiche un QR
+   code et une suite de caractères : cette suite est votre secret TOTP.
+2. Utilisez comme mot de passe WebDAV `motdepasse|SECRET` (secret après le
+   dernier `|` ; espaces et casse ignorés).
+
+Vous pouvez aussi fournir un code courant au lieu du secret :
+`motdepasse|123456`. Le code est utilisé tel quel : la session ne dure que
+jusqu'à l'expiration du cache (`AUTH_CACHE_TTL`) ; un nouveau code est ensuite
+nécessaire.
+
+Les comptes sans A2F continuent d'utiliser le mot de passe seul. Push, code par
+courriel, grille de codes et WebAuthn ne sont pas pris en charge.
+
 ## Notes de sécurité
 
 - **Placez du TLS devant ce proxy en production.** Il écoute en clair sur `:80`
@@ -126,6 +149,11 @@ sudo mount -t davfs http://localhost:3000/ /mnt/ged
 - Les identifiants sont envoyés à chaque requête. Le mot de passe n'est jamais
   stocké — seul son SHA-256 figure dans la clé de cache ; seul le `JSESSIONID`
   dérivé est mis en cache.
+- Avec l'A2F, le proxy reçoit **les deux facteurs** (mot de passe et secret
+  TOTP) à chaque requête. Ne l'exploitez que pour vous-même ou pour des
+  utilisateurs qui font confiance à son opérateur, et uniquement derrière du TLS.
+  Le secret n'est jamais stocké ni journalisé : il est haché dans la clé de cache
+  avec le mot de passe.
 - Les en-têtes `Set-Cookie` du backend ne sont jamais transmis au client.
 - Le TLS vers l'upstream est vérifié (`proxy_ssl_verify on`, bundle CA système).
 
@@ -136,7 +164,8 @@ sudo mount -t davfs http://localhost:3000/ /mnt/ged
 ├── nginx/nginx.conf          # routes, upstream, hooks Lua
 ├── lua/
 │   ├── config.lua            # config par variables d'env + défauts
-│   ├── cas_auth.lua          # flux de connexion CAS
+│   ├── cas_auth.lua          # flux de connexion CAS (+ second facteur TOTP)
+│   ├── totp.lua              # générateur de codes TOTP (RFC 6238)
 │   ├── cache.lua             # cache de session (shared-dict)
 │   ├── webdav_proxy.lua      # auth + réécriture PROPFIND/en-têtes
 │   └── admin.lua             # /health + endpoints d'admin du cache
