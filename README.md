@@ -126,10 +126,10 @@ method, and generates the codes itself:
 1. Activate the TOTP method in the
    [Unistra 2FA manager](https://cas-mfa.app.unistra.fr/). It shows a QR code and
    a character string: the string is your TOTP secret.
-2. Set your WebDAV password to `password|SECRET` (secret after the last `|`;
+2. Set your WebDAV password to `password||SECRET` (secret after the last `||`;
    spaces and case are ignored).
 
-You can also give a current code instead of the secret: `password|123456`. The
+You can also give a current code instead of the secret: `password||123456`. The
 code is used as is, so the session lasts only until the cache expires
 (`AUTH_CACHE_TTL`); then a new code is needed.
 

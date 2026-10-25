@@ -11,15 +11,15 @@ local function parse_basic_auth(auth_header)
     -- Split on first colon only; password may contain colons
     local username, password = decoded:match("^([^:]+):(.+)$")
     if not username then return nil, nil end
-    -- Optional second factor after the last '|': a 6-digit TOTP code
-    -- ("password|123456") or a TOTP secret ("password|BASE32SECRET").
+    -- Optional second factor after the last '||': a 6-digit TOTP code
+    -- ("password||123456") or a TOTP secret ("password||BASE32SECRET").
     -- Kept as part of the password if it looks like neither.
-    local pw, factor = password:match("^(.+)|([^|]+)$")
+    local pw, factor = password:match("^(.+)||(.+)$")
     if pw and totp.is_code(factor) then
-        return username, pw, factor
+        return username, pw, { code = factor }
     end
     if pw and totp.is_secret(factor) then
-        return username, pw, totp.normalize(factor)
+        return username, pw, { secret = totp.normalize(factor) }
     end
     return username, password, nil
 end

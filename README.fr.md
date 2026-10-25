@@ -130,11 +130,11 @@ la méthode **TOTP**, et génère lui-même les codes :
 1. Activez la méthode TOTP dans le
    [gestionnaire A2F Unistra](https://cas-mfa.app.unistra.fr/). Il affiche un QR
    code et une suite de caractères : cette suite est votre secret TOTP.
-2. Utilisez comme mot de passe WebDAV `motdepasse|SECRET` (secret après le
-   dernier `|` ; espaces et casse ignorés).
+2. Utilisez comme mot de passe WebDAV `motdepasse||SECRET` (secret après le
+   dernier `||` ; espaces et casse ignorés).
 
 Vous pouvez aussi fournir un code courant au lieu du secret :
-`motdepasse|123456`. Le code est utilisé tel quel : la session ne dure que
+`motdepasse||123456`. Le code est utilisé tel quel : la session ne dure que
 jusqu'à l'expiration du cache (`AUTH_CACHE_TTL`) ; un nouveau code est ensuite
 nécessaire.
 

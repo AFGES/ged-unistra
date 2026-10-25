@@ -3,12 +3,16 @@ local http          = require("resty.http")
 local config        = require("config")
 local cache         = require("cache")
 local totp          = require("totp")
+local resty_lock    = require("resty.lock")
 
 local CA_BUNDLE     = "/etc/ssl/certs/ca-certificates.crt"
 
+-- Shared dict for login locks, recent failures and used TOTP steps.
+local STATE_DICT    = "cas_auth_state"
+
 -- Hidden field only present on the CAS second-factor page (the password page
 -- uses "_eventId" instead).
-local MFA_MARKER    = 'name="_eventId_submit"'
+local MFA_MARKER    = 'name=["\']_eventId_submit["\']'
 
 local EXEC_PATTERNS = {
     'name=["\']execution["\'][^>]*value=["\']([^"\']+)["\']',
@@ -68,8 +72,41 @@ local function follow_for_jsessionid(httpc, res, cfg, ssl_opts)
     return jsessionid
 end
 
--- Full CAS authentication flow. second_factor is optional: a 6-digit TOTP code
--- used as is, or a base32 TOTP secret. It is only used when CAS asks for it.
+-- POST a form to CAS with NO redirect following so we get the raw 302.
+local function post_form(httpc, url, args, ssl_opts)
+    return httpc:request_uri(url, {
+        method                  = "POST",
+        body                    = ngx.encode_args(args),
+        headers                 = { ["Content-Type"] = "application/x-www-form-urlencoded" },
+        ssl_verify              = ssl_opts.ssl_verify,
+        ssl_trusted_certificate = ssl_opts.ssl_trusted_certificate,
+        max_redirects           = 0,
+    })
+end
+
+local function is_mfa_page(res)
+    return res.status == 200 and res.body ~= nil
+        and res.body:find(MFA_MARKER) ~= nil
+end
+
+-- TOTP code for a secret that CAS has not seen yet. CAS refuses a code it
+-- already accepted or rejected, so if this secret was used in the current
+-- 30 s step, wait for the next one.
+local function fresh_totp_code(secret)
+    local dict = ngx.shared[STATE_DICT]
+    local mark = "totp_" .. ngx.encode_base64(ngx.sha1_bin(secret))
+    ngx.update_time()
+    local step = math.floor(ngx.now() / 30)
+    if dict:get(mark) == step then
+        ngx.sleep((step + 1) * 30 - ngx.now() + 0.5)
+        step = step + 1
+    end
+    dict:set(mark, step, 90)
+    return totp.code(secret, step * 30)
+end
+
+-- Full CAS authentication flow. second_factor is optional: { code = "123456" }
+-- used as is, or { secret = "BASE32" }. It is only used when CAS asks for it.
 -- Returns jsessionid, nil on success or nil, err on failure.
 function M.authenticate(username, password, second_factor)
     local cfg = config.get()
@@ -97,29 +134,20 @@ function M.authenticate(username, password, second_factor)
         return nil, "CAS execution token not found in login page"
     end
 
-    -- Step 2: POST credentials with NO redirect following so we get the raw 302.
-    local form_body = ngx.encode_args({
+    -- Step 2: POST credentials.
+    local res2, err2 = post_form(httpc, cfg.cas_login_url, {
         username    = username,
         password    = password,
         execution   = execution,
         _eventId    = "submit",
         geolocation = "",
-    })
-
-    local res2, err2 = httpc:request_uri(cfg.cas_login_url, {
-        method                  = "POST",
-        body                    = form_body,
-        headers                 = { ["Content-Type"] = "application/x-www-form-urlencoded" },
-        ssl_verify              = ssl_opts.ssl_verify,
-        ssl_trusted_certificate = ssl_opts.ssl_trusted_certificate,
-        max_redirects           = 0,
-    })
+    }, ssl_opts)
     if not res2 then
         return nil, "CAS POST failed: " .. (err2 or "unknown")
     end
 
     -- Step 3 (only when CAS asks for a second factor): POST a TOTP code.
-    if res2.status == 200 and res2.body and res2.body:find(MFA_MARKER, 1, true) then
+    if is_mfa_page(res2) then
         if not second_factor then
             httpc:close()
             return nil, "MFA required but no TOTP code or secret supplied"
@@ -132,9 +160,9 @@ function M.authenticate(username, password, second_factor)
             return nil, "CAS execution token not found in MFA page"
         end
 
-        local code, cerr = second_factor, nil
-        if not totp.is_code(code) then
-            code, cerr = totp.code(second_factor, ngx.time())
+        local code, cerr = second_factor.code, nil
+        if not code then
+            code, cerr = fresh_totp_code(second_factor.secret)
         end
         if not code then
             httpc:close()
@@ -142,24 +170,17 @@ function M.authenticate(username, password, second_factor)
         end
 
         local err4
-        res2, err4 = httpc:request_uri(cfg.cas_login_url, {
-            method                  = "POST",
-            body                    = ngx.encode_args({
-                token           = code,
-                execution       = mfa_execution,
-                _eventId_submit = "Login",
-            }),
-            headers                 = { ["Content-Type"] = "application/x-www-form-urlencoded" },
-            ssl_verify              = ssl_opts.ssl_verify,
-            ssl_trusted_certificate = ssl_opts.ssl_trusted_certificate,
-            max_redirects           = 0,
-        })
+        res2, err4 = post_form(httpc, cfg.cas_login_url, {
+            token           = code,
+            execution       = mfa_execution,
+            _eventId_submit = "Login",
+        }, ssl_opts)
         if not res2 then
             httpc:close()
             return nil, "CAS MFA POST failed: " .. (err4 or "unknown")
         end
         -- No retry: a second attempt would reuse the same code.
-        if res2.status == 200 and res2.body and res2.body:find(MFA_MARKER, 1, true) then
+        if is_mfa_page(res2) then
             httpc:close()
             return nil, "TOTP code rejected"
         end
@@ -177,18 +198,22 @@ function M.authenticate(username, password, second_factor)
     return jsessionid, nil
 end
 
--- Seconds a login may hold the per-user lock, and how long others wait for it.
-local LOCK_TTL      = 30
-local LOCK_WAIT     = 20
-local LOCK_POLL     = 0.2
+-- Lock lifetime must exceed a worst-case login: 4 CAS/backend requests with
+-- 5+10+15 s timeouts each, plus up to 30 s waiting for a fresh TOTP step.
+local LOCK_TTL      = 150
+local LOCK_WAIT     = 60
+-- A failed login is shared with waiters for this long, so they do not all
+-- retry it (each retry counts toward CAS lockout).
+local FAIL_TTL      = 5
 
 -- Cache-first: check cache, fall through to full CAS auth on miss.
 -- Only one CAS login runs per credentials at a time: WebDAV clients send
 -- parallel requests, and a TOTP code must not be submitted twice.
 function M.get_jsessionid(username, password, second_factor)
-    -- Without a secret the key is unchanged from earlier versions.
+    -- Without a second factor the key is unchanged from earlier versions.
+    local factor = second_factor and (second_factor.code or second_factor.secret)
     local key = cache.make_key(username,
-        second_factor and (password .. "|" .. second_factor) or password)
+        factor and (password .. "||" .. factor) or password)
     local cfg = config.get()
 
     local cached = cache.get(key)
@@ -197,31 +222,39 @@ function M.get_jsessionid(username, password, second_factor)
         return cached, nil
     end
 
-    if not cache.lock(key, LOCK_TTL) then
-        config.debug("login in progress, waiting: ", username)
-        local waited = 0
-        while waited < LOCK_WAIT do
-            ngx.sleep(LOCK_POLL)
-            waited = waited + LOCK_POLL
-            cached = cache.get(key)
-            if cached then
-                return cached, nil
-            end
-            -- Lock released without a cached session: that login failed.
-            if not cache.is_locked(key) then
-                return nil, "concurrent CAS login failed"
-            end
-        end
-        return nil, "timed out waiting for concurrent CAS login"
+    local lock, lerr = resty_lock:new(STATE_DICT, { exptime = LOCK_TTL, timeout = LOCK_WAIT })
+    if not lock then
+        return nil, "lock init failed: " .. (lerr or "unknown")
+    end
+    local elapsed, werr = lock:lock(key)
+    if not elapsed then
+        return nil, "waiting for concurrent CAS login failed: " .. (werr or "unknown")
+    end
+
+    -- Another request may have finished the login while we waited.
+    cached = cache.get(key)
+    if cached then
+        lock:unlock()
+        return cached, nil
+    end
+    local failed = ngx.shared[STATE_DICT]:get("fail_" .. key)
+    if failed then
+        lock:unlock()
+        return nil, "concurrent CAS login failed: " .. failed
     end
 
     config.debug("cache miss, authenticating: ", username)
-    local jsessionid, err = M.authenticate(username, password, second_factor)
+    local ok, jsessionid, err = pcall(M.authenticate, username, password, second_factor)
+    if not ok then
+        jsessionid, err = nil, "CAS login error: " .. tostring(jsessionid)
+    end
     if jsessionid then
         cache.set(key, jsessionid, username, cfg.auth_cache_ttl)
         ngx.log(ngx.INFO, "authenticated and cached: ", username)
+    else
+        ngx.shared[STATE_DICT]:set("fail_" .. key, err or "unknown", FAIL_TTL)
     end
-    cache.unlock(key)
+    lock:unlock()
 
     return jsessionid, err
 end
