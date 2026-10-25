@@ -1,5 +1,5 @@
 FROM docker.io/openresty/openresty:alpine-fat@sha256:1f6f2542b0ee2a9874a57927211ce272322a850adb7fcc7432bd6af44184f6e0 AS builder
-RUN opm get ledgetech/lua-resty-http=0.17.1
+RUN opm get ledgetech/lua-resty-http=0.18.0
 
 # Lint and unit tests: docker build --target test .
 FROM builder AS test
