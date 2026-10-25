@@ -1,0 +1,25 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices"],
+  "ignoreDeps": ["webdav-cas-proxy"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "OPM packages installed in the Dockerfile",
+      "managerFilePatterns": ["/(^|/)Dockerfile$/"],
+      "matchStrings": [
+        "opm get (?<depName>[\\w-]+/[\\w-]+)=(?<currentValue>[\\d.]+)"
+      ],
+      "datasourceTemplate": "github-tags",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Keep both OpenResty build stages on the same image",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["docker.io/openresty/openresty", "openresty/openresty"],
+      "groupName": "openresty"
+    }
+  ]
+}
