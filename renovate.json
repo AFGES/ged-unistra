@@ -5,12 +5,11 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "OPM packages installed in the Dockerfile",
+      "description": "Versions pinned via renovate comments in the Dockerfile",
       "managerFilePatterns": ["/(^|/)Dockerfile$/"],
       "matchStrings": [
-        "opm get (?<depName>[\\w-]+/[\\w-]+)=(?<currentValue>[\\d.]+)"
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+ARG \\w+_VERSION=(?<currentValue>\\S+)"
       ],
-      "datasourceTemplate": "github-tags",
       "extractVersionTemplate": "^v(?<version>.*)$"
     }
   ],
