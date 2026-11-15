@@ -61,12 +61,15 @@ LRU eviction when full.
 
 ## Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| any | `/` | WebDAV proxy — requires Basic Auth |
-| `GET` | `/health` | Liveness JSON (`{"status":"ok"}`), no backend probe |
-| `GET` | `/admin/cache/stats` | Shared-dict key count, capacity and free bytes |
-| `DELETE` | `/admin/cache/clear` | Flush the session cache (`405` on any other method) |
+| Port | Method | Path | Description |
+|------|--------|------|-------------|
+| 80 | any | `/` | WebDAV proxy — requires Basic Auth |
+| 80 | `GET` | `/health` | Liveness JSON (`{"status":"ok"}`), no backend probe |
+| 8081 | `GET` | `/admin/cache/stats` | Shared-dict key count, capacity and free bytes |
+| 8081 | `DELETE` | `/admin/cache/clear` | Flush the session cache (`405` on any other method) |
+
+The admin endpoints have no authentication: they listen on port `8081` only. Never
+publish that port; reach it from a private network or with `docker exec`.
 
 ## Configuration
 
@@ -78,6 +81,9 @@ and [`lua/config.lua`](lua/config.lua)):
 | `CAS_LOGIN_URL` | `https://cas.unistra.fr/cas/login?service=…nxstartup.faces` | CAS login URL (with the Nuxeo service param) |
 | `WEBDAV_BASE_URL` | `https://ged.unistra.fr/nuxeo/site/dav` | Backend WebDAV base; trailing slash is stripped. Used to rewrite absolute URLs in PROPFIND responses |
 | `AUTH_CACHE_TTL` | `3000` | Session cache TTL in seconds |
+| `AUTH_MAX_FAILURES_USER` | `5` | Failed CAS logins allowed per username within the window |
+| `AUTH_MAX_FAILURES_IP` | `20` | Failed CAS logins allowed per client address within the window |
+| `AUTH_FAILURE_WINDOW` | `900` | Window for the failed-login limits, in seconds |
 | `DEBUG_MODE` | `false` | Enable `[cas-proxy]` debug logging |
 
 ## Run
@@ -147,6 +153,17 @@ and WebAuthn are not supported.
   every request. Run it only for yourself or users who trust its operator, and
   only behind TLS. The secret is never stored or logged: it is hashed into the
   cache key with the password.
+- **Failed-login limits.** Each login that CAS refuses (wrong password or second
+  factor) counts against the username and the client address. Past
+  `AUTH_MAX_FAILURES_USER` or `AUTH_MAX_FAILURES_IP` failures within
+  `AUTH_FAILURE_WINDOW`, the proxy answers `429` with `Retry-After` and does not
+  call CAS, so it cannot be used to guess passwords or lock Unistra accounts. A
+  successful login clears the username's count. Requests with a cached session
+  are never blocked, and CAS network errors do not count.
+- The client address comes from `X-Forwarded-For`, trusted from private ranges
+  (`10/8`, `172.16/12`, `192.168/16`, loopback). Run the proxy behind a reverse
+  proxy that appends the client address; a client on a private network could
+  otherwise choose its own.
 - Backend `Set-Cookie` headers are never forwarded to the client.
 - Upstream TLS is verified (`proxy_ssl_verify on`, system CA bundle).
 
@@ -158,6 +175,7 @@ and WebAuthn are not supported.
 ├── lua/
 │   ├── config.lua            # env-var config + defaults
 │   ├── cas_auth.lua          # CAS login flow (+ TOTP second factor)
+│   ├── limiter.lua           # failed-login limits per username and address
 │   ├── totp.lua              # RFC 6238 TOTP code generator
 │   ├── cache.lua             # shared-dict session cache
 │   ├── webdav_proxy.lua      # auth + PROPFIND/header rewriting

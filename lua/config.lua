@@ -11,6 +11,10 @@ function M.init()
             or "https://cas.unistra.fr/cas/login?service=https%3A%2F%2Fged.unistra.fr%2Fnuxeo%2Fnxstartup.faces",
         webdav_base_url = webdav_base,
         auth_cache_ttl  = tonumber(os.getenv("AUTH_CACHE_TTL")) or 3000,
+        -- Failed CAS logins allowed per username and per client address within the window (seconds)
+        auth_max_failures_user = tonumber(os.getenv("AUTH_MAX_FAILURES_USER")) or 5,
+        auth_max_failures_ip   = tonumber(os.getenv("AUTH_MAX_FAILURES_IP")) or 20,
+        auth_failure_window    = tonumber(os.getenv("AUTH_FAILURE_WINDOW")) or 900,
         debug_mode      = os.getenv("DEBUG_MODE") == "true",
     }
 end

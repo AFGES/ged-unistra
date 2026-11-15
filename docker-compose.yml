@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
     image: webdav-cas-proxy:1.0.0
     container_name: webdav-cas-proxy
+    # 8081 serves the unauthenticated admin endpoints: never publish it
     ports:
       - "3000:80"
     environment:
@@ -12,6 +13,9 @@ services:
       - WEBDAV_BASE_URL=https://ged.unistra.fr/nuxeo/site/dav
       - AUTH_CACHE_TTL=3000
       - DEBUG_MODE=false
+      - AUTH_MAX_FAILURES_USER=5
+      - AUTH_MAX_FAILURES_IP=20
+      - AUTH_FAILURE_WINDOW=900
     restart: unless-stopped
     deploy:
       resources:

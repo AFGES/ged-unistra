@@ -13,7 +13,9 @@ WORKDIR /src
 COPY .luacheckrc ./
 COPY lua/ lua/
 COPY tests/ tests/
-RUN luacheck lua/ tests/ && resty -I lua tests/totp_test.lua
+RUN luacheck lua/ tests/ \
+    && resty -I lua tests/totp_test.lua \
+    && resty --shdict 'cas_auth_state 1m' -I lua tests/limiter_test.lua
 
 FROM docker.io/openresty/openresty:alpine@sha256:2cb90d64192934c26b3749cf744f47edd59277787fe761bd109eeebdc3e2214a
 
@@ -26,6 +28,7 @@ COPY nginx/nginx.conf /etc/nginx/conf.d/default.conf
 COPY lua/ /etc/nginx/lua/
 COPY --from=builder /usr/local/openresty/site/lualib/ /usr/local/openresty/site/lualib/
 
-EXPOSE 80
+# 80: WebDAV and /health. 8081: unauthenticated admin endpoints, never publish it
+EXPOSE 80 8081
 
 CMD ["/usr/local/openresty/bin/openresty", "-g", "daemon off;"]

@@ -46,6 +46,9 @@ jobs:
           echo
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/health)" = 200
           test "$(curl -s -o /dev/null -w '%{http_code}' -X PROPFIND http://127.0.0.1:3000/)" = 401
+          # Admin endpoints answer on 8081 only; on 80 they are WebDAV paths behind Basic Auth
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/admin/cache/stats)" = 401
+          docker exec proxy wget -qO- http://127.0.0.1:8081/admin/cache/stats | grep -q keys_count
 
       - name: Proxy logs
         if: always()

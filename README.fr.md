@@ -64,12 +64,16 @@ dans un `lua_shared_dict` de 10 Mo. La clé est
 
 ## Endpoints
 
-| Méthode | Chemin | Description |
-|---------|--------|-------------|
-| toute | `/` | Proxy WebDAV — Basic Auth requis |
-| `GET` | `/health` | JSON de liveness (`{"status":"ok"}`), sans sonde backend |
-| `GET` | `/admin/cache/stats` | Nombre de clés, capacité et octets libres du shared-dict |
-| `DELETE` | `/admin/cache/clear` | Vide le cache de session (`405` pour toute autre méthode) |
+| Port | Méthode | Chemin | Description |
+|------|---------|--------|-------------|
+| 80 | toute | `/` | Proxy WebDAV — Basic Auth requis |
+| 80 | `GET` | `/health` | JSON de liveness (`{"status":"ok"}`), sans sonde backend |
+| 8081 | `GET` | `/admin/cache/stats` | Nombre de clés, capacité et octets libres du shared-dict |
+| 8081 | `DELETE` | `/admin/cache/clear` | Vide le cache de session (`405` pour toute autre méthode) |
+
+Les endpoints d'admin n'ont pas d'authentification : ils n'écoutent que sur le
+port `8081`. Ne publiez jamais ce port ; accédez-y depuis un réseau privé ou avec
+`docker exec`.
 
 ## Configuration
 
@@ -81,6 +85,9 @@ Toute la configuration se fait par variables d'environnement (voir
 | `CAS_LOGIN_URL` | `https://cas.unistra.fr/cas/login?service=…nxstartup.faces` | URL de connexion CAS (avec le paramètre service Nuxeo) |
 | `WEBDAV_BASE_URL` | `https://ged.unistra.fr/nuxeo/site/dav` | Base WebDAV du backend ; le slash final est retiré. Sert à réécrire les URLs absolues des réponses PROPFIND |
 | `AUTH_CACHE_TTL` | `3000` | TTL du cache de session, en secondes |
+| `AUTH_MAX_FAILURES_USER` | `5` | Échecs de connexion CAS autorisés par identifiant dans la fenêtre |
+| `AUTH_MAX_FAILURES_IP` | `20` | Échecs de connexion CAS autorisés par adresse client dans la fenêtre |
+| `AUTH_FAILURE_WINDOW` | `900` | Fenêtre des limites d'échecs de connexion, en secondes |
 | `DEBUG_MODE` | `false` | Active les logs de debug `[cas-proxy]` |
 
 ## Lancement
@@ -154,6 +161,18 @@ courriel, grille de codes et WebAuthn ne sont pas pris en charge.
   utilisateurs qui font confiance à son opérateur, et uniquement derrière du TLS.
   Le secret n'est jamais stocké ni journalisé : il est haché dans la clé de cache
   avec le mot de passe.
+- **Limites d'échecs de connexion.** Chaque connexion refusée par le CAS (mot de
+  passe ou second facteur faux) compte pour l'identifiant et pour l'adresse du
+  client. Au-delà de `AUTH_MAX_FAILURES_USER` ou `AUTH_MAX_FAILURES_IP` échecs
+  dans `AUTH_FAILURE_WINDOW`, le proxy répond `429` avec `Retry-After` sans
+  appeler le CAS : il ne peut pas servir à deviner des mots de passe ni à
+  bloquer des comptes Unistra. Une connexion réussie remet à zéro le compteur de
+  l'identifiant. Les requêtes avec une session en cache ne sont jamais bloquées,
+  et les erreurs réseau du CAS ne comptent pas.
+- L'adresse du client vient de `X-Forwarded-For`, accepté depuis les plages
+  privées (`10/8`, `172.16/12`, `192.168/16`, loopback). Placez le proxy derrière
+  un reverse proxy qui ajoute l'adresse du client ; sinon un client sur un
+  réseau privé pourrait choisir la sienne.
 - Les en-têtes `Set-Cookie` du backend ne sont jamais transmis au client.
 - Le TLS vers l'upstream est vérifié (`proxy_ssl_verify on`, bundle CA système).
 
@@ -165,6 +184,7 @@ courriel, grille de codes et WebAuthn ne sont pas pris en charge.
 ├── lua/
 │   ├── config.lua            # config par variables d'env + défauts
 │   ├── cas_auth.lua          # flux de connexion CAS (+ second facteur TOTP)
+│   ├── limiter.lua           # limites d'échecs de connexion par identifiant et adresse
 │   ├── totp.lua              # générateur de codes TOTP (RFC 6238)
 │   ├── cache.lua             # cache de session (shared-dict)
 │   ├── webdav_proxy.lua      # auth + réécriture PROPFIND/en-têtes

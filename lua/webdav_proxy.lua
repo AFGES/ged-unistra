@@ -69,7 +69,14 @@ function M.authenticate()
         return ngx.exit(401)
     end
 
-    local jsessionid, err = cas_auth.get_jsessionid(username, password, second_factor)
+    local ip = ngx.var.remote_addr
+    local jsessionid, err, retry_after = cas_auth.get_jsessionid(username, password, second_factor, ip)
+    if not jsessionid and retry_after then
+        ngx.log(ngx.ERR, "too many failed logins, refused: user=", username, " ip=", ip,
+            " retry_after=", retry_after)
+        ngx.header["Retry-After"] = retry_after
+        return ngx.exit(429)
+    end
     if not jsessionid then
         ngx.log(ngx.ERR, "CAS auth failed for ", username, ": ", err)
         ngx.header["WWW-Authenticate"] = 'Basic realm="GED Unistra"'

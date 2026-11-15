@@ -3,6 +3,7 @@ local http          = require("resty.http")
 local config        = require("config")
 local cache         = require("cache")
 local totp          = require("totp")
+local limiter       = require("limiter")
 local resty_lock    = require("resty.lock")
 
 local CA_BUNDLE     = "/etc/ssl/certs/ca-certificates.crt"
@@ -107,7 +108,9 @@ end
 
 -- Full CAS authentication flow. second_factor is optional: { code = "123456" }
 -- used as is, or { secret = "BASE32" }. It is only used when CAS asks for it.
--- Returns jsessionid, nil on success or nil, err on failure.
+-- Returns jsessionid, nil on success or nil, err, rejected on failure. rejected is true when CAS refused the
+-- credentials (wrong password or second factor), not for network or page errors: only those count toward the
+-- failed-login limits.
 function M.authenticate(username, password, second_factor)
     local cfg = config.get()
     local httpc = http.new()
@@ -150,7 +153,7 @@ function M.authenticate(username, password, second_factor)
     if is_mfa_page(res2) then
         if not second_factor then
             httpc:close()
-            return nil, "MFA required but no TOTP code or secret supplied"
+            return nil, "MFA required but no TOTP code or secret supplied", true
         end
         config.debug("MFA required, submitting TOTP for: ", username)
 
@@ -182,7 +185,7 @@ function M.authenticate(username, password, second_factor)
         -- No retry: a second attempt would reuse the same code.
         if is_mfa_page(res2) then
             httpc:close()
-            return nil, "TOTP code rejected"
+            return nil, "TOTP code rejected", true
         end
     end
 
@@ -191,8 +194,10 @@ function M.authenticate(username, password, second_factor)
     httpc:close()
 
     if not jsessionid then
+        -- A redirect without the cookie is a backend problem; anything else is CAS showing the login page again
+        local rejected = not (res2.status >= 300 and res2.status < 400)
         return nil, "JSESSIONID not found after CAS authentication (POST status "
-            .. tostring(res2.status) .. ")"
+            .. tostring(res2.status) .. ")", rejected
     end
 
     return jsessionid, nil
@@ -207,9 +212,11 @@ local LOCK_WAIT     = 60
 local FAIL_TTL      = 5
 
 -- Cache-first: check cache, fall through to full CAS auth on miss.
+-- ip is the client address, for the failed-login limits. Returns jsessionid, nil on success, or nil, err and,
+-- when a limit is reached, the seconds to wait before retrying.
 -- Only one CAS login runs per credentials at a time: WebDAV clients send
 -- parallel requests, and a TOTP code must not be submitted twice.
-function M.get_jsessionid(username, password, second_factor)
+function M.get_jsessionid(username, password, second_factor, ip)
     -- Without a second factor the key is unchanged from earlier versions.
     local factor = second_factor and (second_factor.code or second_factor.secret)
     local key = cache.make_key(username,
@@ -220,6 +227,12 @@ function M.get_jsessionid(username, password, second_factor)
     if cached then
         config.debug("cache hit for: ", username)
         return cached, nil
+    end
+
+    -- Cached sessions are never blocked: only new CAS logins are
+    local wait = limiter.blocked(username, ip)
+    if wait then
+        return nil, "too many failed logins", wait
     end
 
     local lock, lerr = resty_lock:new(STATE_DICT, { exptime = LOCK_TTL, timeout = LOCK_WAIT })
@@ -244,15 +257,20 @@ function M.get_jsessionid(username, password, second_factor)
     end
 
     config.debug("cache miss, authenticating: ", username)
-    local ok, jsessionid, err = pcall(M.authenticate, username, password, second_factor)
+    local ok, jsessionid, err, rejected = pcall(M.authenticate, username, password, second_factor)
     if not ok then
         jsessionid, err = nil, "CAS login error: " .. tostring(jsessionid)
     end
     if jsessionid then
         cache.set(key, jsessionid, username, cfg.auth_cache_ttl)
+        limiter.reset_user(username)
         ngx.log(ngx.INFO, "authenticated and cached: ", username)
     else
         ngx.shared[STATE_DICT]:set("fail_" .. key, err or "unknown", FAIL_TTL)
+        -- Counted here only, not for the requests that waited on this login and share its result
+        if rejected then
+            limiter.record_failure(username, ip)
+        end
     end
     lock:unlock()
 
