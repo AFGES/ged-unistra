@@ -16,6 +16,7 @@ services:
       - AUTH_MAX_FAILURES_USER=5
       - AUTH_MAX_FAILURES_IP=20
       - AUTH_FAILURE_WINDOW=900
+      - FOLDER_DATES_TTL=3600
     restart: unless-stopped
     deploy:
       resources:

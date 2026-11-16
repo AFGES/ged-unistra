@@ -84,6 +84,7 @@ and [`lua/config.lua`](lua/config.lua)):
 | `AUTH_MAX_FAILURES_USER` | `5` | Failed CAS logins allowed per username within the window |
 | `AUTH_MAX_FAILURES_IP` | `20` | Failed CAS logins allowed per client address within the window |
 | `AUTH_FAILURE_WINDOW` | `900` | Window for the failed-login limits, in seconds |
+| `FOLDER_DATES_TTL` | `3600` | Cache TTL in seconds of the real dates of top-level folders (Nuxeo lists them with the current date) |
 | `DEBUG_MODE` | `false` | Enable `[cas-proxy]` debug logging |
 
 ## Run

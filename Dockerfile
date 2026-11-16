@@ -15,7 +15,8 @@ COPY lua/ lua/
 COPY tests/ tests/
 RUN luacheck lua/ tests/ \
     && resty -I lua tests/totp_test.lua \
-    && resty --shdict 'cas_auth_state 1m' -I lua tests/limiter_test.lua
+    && resty --shdict 'cas_auth_state 1m' -I lua tests/limiter_test.lua \
+    && resty -I lua tests/root_dates_test.lua
 
 FROM docker.io/openresty/openresty:alpine@sha256:2cb90d64192934c26b3749cf744f47edd59277787fe761bd109eeebdc3e2214a
 

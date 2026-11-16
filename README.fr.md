@@ -88,6 +88,7 @@ Toute la configuration se fait par variables d'environnement (voir
 | `AUTH_MAX_FAILURES_USER` | `5` | Échecs de connexion CAS autorisés par identifiant dans la fenêtre |
 | `AUTH_MAX_FAILURES_IP` | `20` | Échecs de connexion CAS autorisés par adresse client dans la fenêtre |
 | `AUTH_FAILURE_WINDOW` | `900` | Fenêtre des limites d'échecs de connexion, en secondes |
+| `FOLDER_DATES_TTL` | `3600` | TTL du cache des vraies dates des dossiers de premier niveau (Nuxeo les liste avec la date courante), en secondes |
 | `DEBUG_MODE` | `false` | Active les logs de debug `[cas-proxy]` |
 
 ## Lancement

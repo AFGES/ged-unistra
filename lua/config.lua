@@ -15,6 +15,8 @@ function M.init()
         auth_max_failures_user = tonumber(os.getenv("AUTH_MAX_FAILURES_USER")) or 5,
         auth_max_failures_ip   = tonumber(os.getenv("AUTH_MAX_FAILURES_IP")) or 20,
         auth_failure_window    = tonumber(os.getenv("AUTH_FAILURE_WINDOW")) or 900,
+        -- Cache TTL (seconds) of the real dates of top-level folders (lua/root_dates.lua)
+        folder_dates_ttl       = tonumber(os.getenv("FOLDER_DATES_TTL")) or 3600,
         debug_mode      = os.getenv("DEBUG_MODE") == "true",
     }
 end
