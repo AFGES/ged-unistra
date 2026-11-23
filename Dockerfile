@@ -1,4 +1,4 @@
-FROM docker.io/openresty/openresty:alpine-fat@sha256:2f1d99e7ed07740450013b52102842c366f1ef958e94811454cc5bca7ed98d38 AS builder
+FROM docker.io/openresty/openresty:alpine-fat@sha256:deec12e15d7601be31ffe18523a67b139456dceab3cf9a04a4017e07688906db AS builder
 # Fetched from GitHub tags: OPM lags behind upstream releases
 # renovate: datasource=github-tags depName=ledgetech/lua-resty-http
 ARG LUA_RESTY_HTTP_VERSION=0.18.0
@@ -18,7 +18,7 @@ RUN luacheck lua/ tests/ \
     && resty --shdict 'cas_auth_state 1m' -I lua tests/limiter_test.lua \
     && resty -I lua tests/root_dates_test.lua
 
-FROM docker.io/openresty/openresty:alpine@sha256:2cb90d64192934c26b3749cf744f47edd59277787fe761bd109eeebdc3e2214a
+FROM docker.io/openresty/openresty:alpine@sha256:48b7a15d52d9ffc6b1198b206eb58c0d88b2d5059a08bf8393098df9a01c23e5
 
 LABEL maintainer="Charles LESECQ <charles.lesecq@afges.org>"
 LABEL description="GED Unistra with CAS authentication and OpenResty as reverse proxy"
